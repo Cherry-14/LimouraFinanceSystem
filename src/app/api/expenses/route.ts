@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { recordAudit } from "@/lib/audit";
 
 const createSchema = z.object({
@@ -17,46 +17,41 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const from = searchParams.get("from");
   const to = searchParams.get("to");
-  const category = searchParams.get("category") ?? undefined;
+  const category = searchParams.get("category");
   const take = Number(searchParams.get("take") ?? 100);
 
-  const expenses = await prisma.expense.findMany({
-    where: {
-      deletedAt: null,
-      ...(from || to ? {
-        expenseDate: {
-          ...(from ? { gte: new Date(from) } : {}),
-          ...(to ? { lte: new Date(to) } : {}),
-        },
-      } : {}),
-      ...(category ? { category } : {}),
-    },
-    orderBy: { expenseDate: "desc" },
-    take,
-  });
+  let query = db.from("Expense").select("*")
+    .is("deletedAt", null).order("expenseDate", { ascending: false }).limit(take);
 
-  return NextResponse.json({ data: expenses });
+  if (from) query = query.gte("expenseDate", from);
+  if (to) query = query.lte("expenseDate", to);
+  if (category) query = query.eq("category", category);
+
+  const { data, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ data });
 }
 
 export async function POST(req: Request) {
   try {
-    const json = await req.json();
-    const parsed = createSchema.safeParse(json);
-    if (!parsed.success) {
+    const parsed = createSchema.safeParse(await req.json());
+    if (!parsed.success)
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
-    }
-    const data = parsed.data;
-    const expense = await prisma.expense.create({
-      data: {
-        category: data.category,
-        subcategory: data.subcategory ?? null,
-        vendor: data.vendor ?? null,
-        description: data.description ?? null,
-        amountCents: data.amountCents,
-        expenseDate: new Date(data.expenseDate),
-        receiptUrl: data.receiptUrl ?? null,
-      },
-    });
+
+    const d = parsed.data;
+    const { data: expense, error } = await db.from("Expense").insert({
+      id: crypto.randomUUID(),
+      category: d.category,
+      subcategory: d.subcategory ?? null,
+      vendor: d.vendor ?? null,
+      description: d.description ?? null,
+      amountCents: d.amountCents,
+      expenseDate: d.expenseDate,
+      receiptUrl: d.receiptUrl ?? null,
+      updatedAt: new Date().toISOString(),
+    }).select().single();
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     await recordAudit({ action: "CREATE", entityType: "Expense", entityId: expense.id, payload: expense });
     return NextResponse.json({ data: expense }, { status: 201 });
   } catch (err) {

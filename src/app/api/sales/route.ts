@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { recordAudit } from "@/lib/audit";
 
 const createSchema = z.object({
@@ -23,63 +23,58 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const from = searchParams.get("from");
   const to = searchParams.get("to");
-  const clientId = searchParams.get("clientId") ?? undefined;
-  const serviceType = searchParams.get("serviceType") ?? undefined;
-  const status = searchParams.get("status") ?? undefined;
+  const clientId = searchParams.get("clientId");
+  const serviceType = searchParams.get("serviceType");
+  const status = searchParams.get("status");
   const take = Number(searchParams.get("take") ?? 100);
 
-  const sales = await prisma.sale.findMany({
-    where: {
-      deletedAt: null,
-      ...(from || to ? {
-        invoiceDate: {
-          ...(from ? { gte: new Date(from) } : {}),
-          ...(to ? { lte: new Date(to) } : {}),
-        },
-      } : {}),
-      ...(clientId ? { clientId } : {}),
-      ...(serviceType ? { serviceType } : {}),
-      ...(status ? { paymentStatus: status as any } : {}),
-    },
-    include: { client: true },
-    orderBy: { invoiceDate: "desc" },
-    take,
-  });
+  let query = db.from("Sale").select("*, client:Client(*)")
+    .is("deletedAt", null).order("invoiceDate", { ascending: false }).limit(take);
 
-  return NextResponse.json({ data: sales });
+  if (from) query = query.gte("invoiceDate", from);
+  if (to) query = query.lte("invoiceDate", to);
+  if (clientId) query = query.eq("clientId", clientId);
+  if (serviceType) query = query.eq("serviceType", serviceType);
+  if (status) query = query.eq("paymentStatus", status);
+
+  const { data, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ data });
 }
 
 export async function POST(req: Request) {
   try {
-    const json = await req.json();
-    const parsed = createSchema.safeParse(json);
-    if (!parsed.success) {
+    const parsed = createSchema.safeParse(await req.json());
+    if (!parsed.success)
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
+
+    const d = parsed.data;
+    const { data: sale, error } = await db.from("Sale").insert({
+      id: crypto.randomUUID(),
+      invoiceNumber: d.invoiceNumber,
+      projectName: d.projectName,
+      serviceType: d.serviceType,
+      clientId: d.clientId,
+      revenueCents: d.revenueCents,
+      projectCostCents: d.projectCostCents,
+      paymentStatus: d.paymentStatus,
+      paymentMethod: d.paymentMethod ?? null,
+      amountPaidCents: d.amountPaidCents,
+      invoiceDate: d.invoiceDate,
+      dueDate: d.dueDate ?? null,
+      paidDate: d.paidDate ?? null,
+      notes: d.notes ?? null,
+      updatedAt: new Date().toISOString(),
+    }).select().single();
+
+    if (error) {
+      if (error.code === "23505")
+        return NextResponse.json({ error: "Invoice number already exists" }, { status: 409 });
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
-    const data = parsed.data;
-    const sale = await prisma.sale.create({
-      data: {
-        invoiceNumber: data.invoiceNumber,
-        projectName: data.projectName,
-        serviceType: data.serviceType,
-        clientId: data.clientId,
-        revenueCents: data.revenueCents,
-        projectCostCents: data.projectCostCents,
-        paymentStatus: data.paymentStatus,
-        paymentMethod: data.paymentMethod ?? null,
-        amountPaidCents: data.amountPaidCents,
-        invoiceDate: new Date(data.invoiceDate),
-        dueDate: data.dueDate ? new Date(data.dueDate) : null,
-        paidDate: data.paidDate ? new Date(data.paidDate) : null,
-        notes: data.notes ?? null,
-      },
-    });
     await recordAudit({ action: "CREATE", entityType: "Sale", entityId: sale.id, payload: sale });
     return NextResponse.json({ data: sale }, { status: 201 });
-  } catch (err: any) {
-    if (err?.code === "P2002") {
-      return NextResponse.json({ error: "Invoice number already exists" }, { status: 409 });
-    }
+  } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }

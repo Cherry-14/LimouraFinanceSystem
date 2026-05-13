@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { recordAudit } from "@/lib/audit";
 
 const updateSchema = z.object({
@@ -17,27 +17,23 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   try {
     const parsed = updateSchema.safeParse(await req.json());
     if (!parsed.success) return NextResponse.json({ error: "Invalid input" }, { status: 400 });
-    const d = parsed.data;
-    const expense = await prisma.expense.update({
-      where: { id: params.id },
-      data: {
-        ...d,
-        expenseDate: d.expenseDate ? new Date(d.expenseDate) : undefined,
-      },
-    });
+    const { data: expense, error } = await db.from("Expense")
+      .update({ ...parsed.data, updatedAt: new Date().toISOString() })
+      .eq("id", params.id).select().single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     await recordAudit({ action: "UPDATE", entityType: "Expense", entityId: expense.id, payload: expense });
     return NextResponse.json({ data: expense });
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
 
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
   try {
-    const expense = await prisma.expense.update({
-      where: { id: params.id },
-      data: { deletedAt: new Date() },
-    });
+    const now = new Date().toISOString();
+    const { data: expense, error } = await db.from("Expense")
+      .update({ deletedAt: now, updatedAt: now }).eq("id", params.id).select().single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     await recordAudit({ action: "DELETE", entityType: "Expense", entityId: expense.id });
     return NextResponse.json({ ok: true });
   } catch {

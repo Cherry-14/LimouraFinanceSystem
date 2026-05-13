@@ -1,6 +1,4 @@
-import type { PaymentStatus } from "@prisma/client";
-
-export type { PaymentStatus };
+export type PaymentStatus = "PAID" | "PARTIAL" | "PENDING" | "OVERDUE";
 
 export interface DashboardOverview {
   totalRevenueCents: number;

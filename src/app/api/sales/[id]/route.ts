@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { recordAudit } from "@/lib/audit";
 
 const updateSchema = z.object({
@@ -20,29 +20,20 @@ const updateSchema = z.object({
 });
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  const sale = await prisma.sale.findFirst({
-    where: { id: params.id, deletedAt: null },
-    include: { client: true },
-  });
-  if (!sale) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json({ data: sale });
+  const { data, error } = await db.from("Sale").select("*, client:Client(*)")
+    .eq("id", params.id).is("deletedAt", null).single();
+  if (error || !data) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return NextResponse.json({ data });
 }
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   try {
-    const json = await req.json();
-    const parsed = updateSchema.safeParse(json);
+    const parsed = updateSchema.safeParse(await req.json());
     if (!parsed.success) return NextResponse.json({ error: "Invalid input" }, { status: 400 });
-    const d = parsed.data;
-    const sale = await prisma.sale.update({
-      where: { id: params.id },
-      data: {
-        ...d,
-        invoiceDate: d.invoiceDate ? new Date(d.invoiceDate) : undefined,
-        dueDate: d.dueDate === undefined ? undefined : d.dueDate ? new Date(d.dueDate) : null,
-        paidDate: d.paidDate === undefined ? undefined : d.paidDate ? new Date(d.paidDate) : null,
-      },
-    });
+    const { data: sale, error } = await db.from("Sale")
+      .update({ ...parsed.data, updatedAt: new Date().toISOString() })
+      .eq("id", params.id).select().single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     await recordAudit({ action: "UPDATE", entityType: "Sale", entityId: sale.id, payload: sale });
     return NextResponse.json({ data: sale });
   } catch (err) {
@@ -53,13 +44,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
   try {
-    const sale = await prisma.sale.update({
-      where: { id: params.id },
-      data: { deletedAt: new Date() },
-    });
+    const now = new Date().toISOString();
+    const { data: sale, error } = await db.from("Sale")
+      .update({ deletedAt: now, updatedAt: now }).eq("id", params.id).select().single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     await recordAudit({ action: "DELETE", entityType: "Sale", entityId: sale.id });
     return NextResponse.json({ ok: true });
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

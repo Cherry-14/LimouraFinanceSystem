@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { recordAudit } from "@/lib/audit";
 
 const createSchema = z.object({
@@ -13,31 +13,43 @@ const createSchema = z.object({
 });
 
 export async function GET() {
-  const clients = await prisma.client.findMany({
-    where: { deletedAt: null },
-    orderBy: { name: "asc" },
-    include: { _count: { select: { sales: true } } },
-  });
-  return NextResponse.json({ data: clients });
+  const [clientsRes, salesRes] = await Promise.all([
+    db.from("Client").select("*").is("deletedAt", null).order("name", { ascending: true }),
+    db.from("Sale").select("clientId").is("deletedAt", null),
+  ]);
+
+  const countMap = new Map<string, number>();
+  for (const s of salesRes.data ?? []) {
+    countMap.set(s.clientId, (countMap.get(s.clientId) ?? 0) + 1);
+  }
+
+  const data = (clientsRes.data ?? []).map((c) => ({
+    ...c,
+    _count: { sales: countMap.get(c.id) ?? 0 },
+  }));
+
+  return NextResponse.json({ data });
 }
 
 export async function POST(req: Request) {
   try {
     const parsed = createSchema.safeParse(await req.json());
-    if (!parsed.success) {
+    if (!parsed.success)
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
-    }
-    const data = parsed.data;
-    const client = await prisma.client.create({
-      data: {
-        name: data.name,
-        company: data.company || null,
-        email: data.email || null,
-        phone: data.phone || null,
-        country: data.country || null,
-        notes: data.notes || null,
-      },
-    });
+
+    const d = parsed.data;
+    const { data: client, error } = await db.from("Client").insert({
+      id: crypto.randomUUID(),
+      name: d.name,
+      company: d.company || null,
+      email: d.email || null,
+      phone: d.phone || null,
+      country: d.country || null,
+      notes: d.notes || null,
+      updatedAt: new Date().toISOString(),
+    }).select().single();
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     await recordAudit({ action: "CREATE", entityType: "Client", entityId: client.id, payload: client });
     return NextResponse.json({ data: client }, { status: 201 });
   } catch (err) {

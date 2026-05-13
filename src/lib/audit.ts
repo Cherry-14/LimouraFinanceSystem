@@ -1,4 +1,4 @@
-import { prisma } from "./prisma";
+import { db } from "./db";
 
 type Action = "CREATE" | "UPDATE" | "DELETE" | "RESTORE";
 
@@ -10,14 +10,13 @@ export async function recordAudit(opts: {
   payload?: unknown;
 }) {
   try {
-    await prisma.auditLog.create({
-      data: {
-        actor: opts.actor ?? "admin",
-        action: opts.action,
-        entityType: opts.entityType,
-        entityId: opts.entityId,
-        payload: opts.payload ? JSON.stringify(opts.payload) : null,
-      },
+    await db.from("AuditLog").insert({
+      id: crypto.randomUUID(),
+      actor: opts.actor ?? "admin",
+      action: opts.action,
+      entityType: opts.entityType,
+      entityId: opts.entityId,
+      payload: opts.payload ? JSON.stringify(opts.payload) : null,
     });
   } catch (err) {
     // Audit failures must never block the primary operation.

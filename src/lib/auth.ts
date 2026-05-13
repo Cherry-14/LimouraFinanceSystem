@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { prisma } from "./prisma";
+import { db } from "./db";
 
 const COOKIE = "limoura_admin";
 const SECRET = () => process.env.AUTH_SECRET ?? "dev-secret";
@@ -34,7 +34,11 @@ async function verify(token: string): Promise<string | null> {
 }
 
 export async function loginWithPassword(username: string, password: string): Promise<string | null> {
-  const user = await prisma.user.findUnique({ where: { username } });
+  const { data: user } = await db
+    .from("User")
+    .select("passwordHash")
+    .eq("username", username)
+    .single();
   if (!user) return null;
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) return null;
@@ -54,7 +58,7 @@ export function setAuthCookie(res: NextResponse, token: string) {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 24 * 14, // 14 days
+    maxAge: 60 * 60 * 24 * 14,
   });
 }
 
