@@ -3,7 +3,7 @@ import { loginWithPassword, setAuthCookie } from "@/lib/auth";
 import { z } from "zod";
 
 const schema = z.object({
-  email: z.string().email(),
+  username: z.string().min(1),
   password: z.string().min(1),
 });
 
@@ -14,7 +14,7 @@ export async function POST(req: Request) {
     if (!parsed.success) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
-    const token = await loginWithPassword(parsed.data.email, parsed.data.password);
+    const token = await loginWithPassword(parsed.data.username, parsed.data.password);
     if (!token) {
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }

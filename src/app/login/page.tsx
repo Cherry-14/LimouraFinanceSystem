@@ -9,7 +9,7 @@ function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const from = params.get("from") || "/";
-  const [email, setEmail] = React.useState("admin@limoura.studio");
+  const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -22,7 +22,7 @@ function LoginForm() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ username, password }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -55,13 +55,14 @@ function LoginForm() {
 
       <div className="flex flex-col gap-4">
         <div>
-          <Label>Email</Label>
+          <Label>Username</Label>
           <Input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
             required
+            placeholder="Enter your username"
           />
         </div>
         <div>
@@ -80,13 +81,6 @@ function LoginForm() {
       <Button type="submit" variant="primary" size="lg" disabled={busy}>
         {busy ? "Signing in…" : "Sign in"}
       </Button>
-
-      <p className="text-2xs text-ink-500 leading-relaxed">
-        Default credentials (dev): <span className="font-mono text-ink-700">admin@limoura.studio</span> /{" "}
-        <span className="font-mono text-ink-700">changeme</span>
-        <br />
-        Change in <span className="font-mono text-ink-700">.env</span> before deploying.
-      </p>
     </form>
   );
 }

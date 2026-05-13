@@ -1,23 +1,16 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
+import { prisma } from "./prisma";
 
 const COOKIE = "limoura_admin";
+const SECRET = () => process.env.AUTH_SECRET ?? "dev-secret";
 
-function getCredentials() {
-  return {
-    email: process.env.ADMIN_EMAIL ?? "admin@limoura.studio",
-    password: process.env.ADMIN_PASSWORD ?? "changeme",
-    secret: process.env.AUTH_SECRET ?? "dev-secret",
-  };
-}
-
-// Tiny signed token: base64(email).base64(hmac(email))
-async function sign(value: string, secret: string): Promise<string> {
-  // Web Crypto subtle HMAC
+async function sign(value: string): Promise<string> {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw",
-    enc.encode(secret),
+    enc.encode(SECRET()),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign", "verify"],
@@ -27,32 +20,33 @@ async function sign(value: string, secret: string): Promise<string> {
   return `${btoa(value)}.${b}`;
 }
 
-async function verify(token: string, secret: string): Promise<string | null> {
-  if (!token || !token.includes(".")) return null;
+async function verify(token: string): Promise<string | null> {
+  if (!token?.includes(".")) return null;
   const [valueB64, sigB64] = token.split(".");
   if (!valueB64 || !sigB64) return null;
   try {
     const value = atob(valueB64);
-    const expected = await sign(value, secret);
+    const expected = await sign(value);
     return expected === token ? value : null;
   } catch {
     return null;
   }
 }
 
-export async function loginWithPassword(email: string, password: string) {
-  const creds = getCredentials();
-  if (email !== creds.email || password !== creds.password) return null;
-  const token = await sign(email, creds.secret);
-  return token;
+export async function loginWithPassword(username: string, password: string): Promise<string | null> {
+  const user = await prisma.user.findUnique({ where: { username } });
+  if (!user) return null;
+  const valid = await bcrypt.compare(password, user.passwordHash);
+  if (!valid) return null;
+  return sign(username);
 }
 
-export async function getCurrentUser(): Promise<{ email: string } | null> {
+export async function getCurrentUser(): Promise<{ username: string } | null> {
   const cookieStore = cookies();
   const token = cookieStore.get(COOKIE)?.value;
   if (!token) return null;
-  const value = await verify(token, getCredentials().secret);
-  return value ? { email: value } : null;
+  const value = await verify(token);
+  return value ? { username: value } : null;
 }
 
 export function setAuthCookie(res: NextResponse, token: string) {
