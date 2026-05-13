@@ -35,20 +35,15 @@ export function lastNMonths(n: number, anchor: Date = new Date()): { start: Date
 }
 
 export async function getOverview(range?: { from: Date; to: Date }): Promise<DashboardOverview> {
-  const to = range?.to ?? endOfMonth(new Date());
-  const from = range?.from ?? (() => {
-    const x = startOfMonth(new Date());
-    x.setMonth(x.getMonth() - 5);
-    return x;
-  })();
+  // Build current-period queries — no date filter means all-time
+  let salesQ = db.from("Sale").select("revenueCents, projectCostCents, amountPaidCents").is("deletedAt", null);
+  let expQ = db.from("Expense").select("amountCents").is("deletedAt", null);
+  if (range) {
+    salesQ = salesQ.gte("invoiceDate", range.from.toISOString()).lte("invoiceDate", range.to.toISOString());
+    expQ = expQ.gte("expenseDate", range.from.toISOString()).lte("expenseDate", range.to.toISOString());
+  }
 
-  const [salesRes, expensesRes] = await Promise.all([
-    db.from("Sale").select("revenueCents, projectCostCents, amountPaidCents")
-      .is("deletedAt", null).gte("invoiceDate", from.toISOString()).lte("invoiceDate", to.toISOString()),
-    db.from("Expense").select("amountCents")
-      .is("deletedAt", null).gte("expenseDate", from.toISOString()).lte("expenseDate", to.toISOString()),
-  ]);
-
+  const [salesRes, expensesRes] = await Promise.all([salesQ, expQ]);
   const sales = salesRes.data ?? [];
   const expenses = expensesRes.data ?? [];
   const totalRevenueCents = sales.reduce((s, r) => s + r.revenueCents, 0);
@@ -59,17 +54,26 @@ export async function getOverview(range?: { from: Date; to: Date }): Promise<Das
   const profitMargin = totalRevenueCents > 0 ? netProfitCents / totalRevenueCents : 0;
   const outstandingCents = sales.reduce((s, r) => s + Math.max(0, r.revenueCents - r.amountPaidCents), 0);
 
-  const periodMs = to.getTime() - from.getTime();
-  const prevTo = new Date(from.getTime() - 1);
-  const prevFrom = new Date(prevTo.getTime() - periodMs);
+  // Build previous-period queries for deltas
+  // With explicit range: compare to equivalent prior period; without: compare this year vs last year
+  let prevSalesQ = db.from("Sale").select("revenueCents, projectCostCents").is("deletedAt", null);
+  let prevExpQ = db.from("Expense").select("amountCents").is("deletedAt", null);
 
-  const [prevSalesRes, prevExpensesRes] = await Promise.all([
-    db.from("Sale").select("revenueCents, projectCostCents")
-      .is("deletedAt", null).gte("invoiceDate", prevFrom.toISOString()).lte("invoiceDate", prevTo.toISOString()),
-    db.from("Expense").select("amountCents")
-      .is("deletedAt", null).gte("expenseDate", prevFrom.toISOString()).lte("expenseDate", prevTo.toISOString()),
-  ]);
+  if (range) {
+    const periodMs = range.to.getTime() - range.from.getTime();
+    const prevTo = new Date(range.from.getTime() - 1);
+    const prevFrom = new Date(prevTo.getTime() - periodMs);
+    prevSalesQ = prevSalesQ.gte("invoiceDate", prevFrom.toISOString()).lte("invoiceDate", prevTo.toISOString());
+    prevExpQ = prevExpQ.gte("expenseDate", prevFrom.toISOString()).lte("expenseDate", prevTo.toISOString());
+  } else {
+    const thisYear = new Date().getFullYear();
+    const prevYearStart = new Date(thisYear - 1, 0, 1).toISOString();
+    const prevYearEnd = new Date(thisYear - 1, 11, 31, 23, 59, 59, 999).toISOString();
+    prevSalesQ = prevSalesQ.gte("invoiceDate", prevYearStart).lte("invoiceDate", prevYearEnd);
+    prevExpQ = prevExpQ.gte("expenseDate", prevYearStart).lte("expenseDate", prevYearEnd);
+  }
 
+  const [prevSalesRes, prevExpensesRes] = await Promise.all([prevSalesQ, prevExpQ]);
   const prevSales = prevSalesRes.data ?? [];
   const prevExpenses = prevExpensesRes.data ?? [];
   const prevRevenue = prevSales.reduce((s, r) => s + r.revenueCents, 0);
