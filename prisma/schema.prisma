@@ -1,0 +1,119 @@
+// Limoura Creative Studio — Financial Tracking & Analytics
+// Prisma schema. Default provider is SQLite for zero-config local dev.
+// To switch to PostgreSQL, set provider = "postgresql" and update DATABASE_URL.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORE ENTITIES
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Client {
+  id          String   @id @default(cuid())
+  name        String
+  company     String?
+  email       String?
+  phone       String?
+  country     String?
+  notes       String?
+  // Audit
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  sales       Sale[]
+
+  @@index([name])
+  @@index([deletedAt])
+}
+
+model Sale {
+  id            String        @id @default(cuid())
+  invoiceNumber String        @unique
+  projectName   String
+  serviceType   String        // see ServiceType constants
+  clientId      String
+  client        Client        @relation(fields: [clientId], references: [id])
+
+  // Financials are stored as cents (integers) to avoid floating-point drift.
+  // Helpers in src/lib/formatters.ts handle conversion.
+  revenueCents     Int
+  projectCostCents Int        @default(0)
+  // profit is computed: revenueCents - projectCostCents
+
+  paymentStatus PaymentStatus @default(PENDING)
+  paymentMethod String?       // "Bank Transfer", "PayPal", "Wise", "Card", "Cash"
+  amountPaidCents Int         @default(0)
+
+  invoiceDate   DateTime
+  dueDate       DateTime?
+  paidDate      DateTime?
+
+  notes         String?
+  attachmentUrl String?       // optional invoice PDF / receipt
+
+  // Audit
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  deletedAt     DateTime?
+
+  @@index([clientId])
+  @@index([invoiceDate])
+  @@index([paymentStatus])
+  @@index([serviceType])
+  @@index([deletedAt])
+}
+
+enum PaymentStatus {
+  PAID
+  PARTIAL
+  PENDING
+  OVERDUE
+}
+
+model Expense {
+  id           String   @id @default(cuid())
+  category     String   // see ExpenseCategory constants
+  subcategory  String?
+  vendor       String?
+  description  String?
+
+  amountCents  Int
+
+  expenseDate  DateTime
+  receiptUrl   String?  // path to uploaded receipt under public/uploads/
+
+  // Audit
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+
+  @@index([category])
+  @@index([expenseDate])
+  @@index([deletedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUDIT LOG — captures every mutation through the API
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actor      String   // "admin" for now; future: user email
+  action     String   // CREATE | UPDATE | DELETE | RESTORE
+  entityType String   // "Sale" | "Expense" | "Client"
+  entityId   String
+  payload    String?  // JSON snapshot (stringified)
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}

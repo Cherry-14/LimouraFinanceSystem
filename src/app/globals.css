@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 255 255 255;
+    --foreground: 10 10 10;
+    --border: 229 229 229;
+    --muted: 115 115 115;
+    --accent: 31 61 43;
+  }
+
+  * {
+    border-color: rgb(var(--border));
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background: rgb(var(--background));
+    color: rgb(var(--foreground));
+    font-feature-settings: "ss01", "cv11";
+  }
+
+  /* Tabular numerals everywhere money or counts appear */
+  .num,
+  table td,
+  table th {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Subtle scrollbar */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #E5E5E5; border-radius: 999px; }
+  ::-webkit-scrollbar-thumb:hover { background: #D4D4D4; }
+}
+
+@layer components {
+  .display-serif {
+    font-family: var(--font-instrument), ui-serif, Georgia, serif;
+    letter-spacing: -0.02em;
+  }
+
+  .ring-focus {
+    @apply focus:outline-none focus:ring-2 focus:ring-accent/30 focus:ring-offset-1 focus:ring-offset-white;
+  }
+
+  .field {
+    @apply w-full rounded-md border border-ink-200 bg-white px-3 py-2 text-sm text-ink placeholder:text-ink-400 ring-focus transition-colors hover:border-ink-300 focus:border-ink-700;
+  }
+}
+
+/* Recharts tweaks */
+.recharts-cartesian-axis-tick text {
+  fill: rgb(115 115 115);
+  font-size: 11px;
+}
+.recharts-cartesian-grid line {
+  stroke: rgb(229 229 229);
+  stroke-dasharray: 2 4;
+}
+.recharts-tooltip-wrapper {
+  outline: none;
+}
+
+/* PDF export helper class */
+.pdf-export {
+  background: white;
+  color: #0A0A0A;
+}
+
+/* Print-friendly */
+@media print {
+  body { background: white; }
+  .no-print { display: none !important; }
+}
